@@ -15,7 +15,7 @@
 <body>
   <h1>Sticker Fight</h1>
   <div id="plantel">
-    <p>Sube al menos 2 stickers (PNG/WEBP/JPG)</p>
+    <p>Sube tus propios stickers (opcional) o juega con los 20 de fábrica</p>
     <input type="file" id="fileInput" multiple accept="image/*"><br>
     <button id="startBtn">1P vs CPU</button>
   </div>
@@ -34,14 +34,32 @@ const fileInput = document.getElementById('fileInput');
 let stickers = [];
 let gameRunning = false;
 
-// audios
+// sonidos
 const sHitP1 = new Audio('cha-ching-money.mp3');
 const sHitCPU = new Audio('para-sesi-efekti_PaUswM1.mp3');
 const sEnd   = new Audio('maslaton-pero-vos-sos-pelotudo.mp3');
 
-// cargar stickers
+// rutas de los 20 stickers por defecto
+const defaultStickerPaths = Array.from({length:20},(_,i)=>`stickers/sticker ${i+1}.png`);
+
+function loadImageAsSticker(path){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.onload = ()=> resolve({ name: path.split('/').pop().replace(/\.[^.]+$/,''), img });
+    img.onerror = reject;
+    img.src = path;
+  });
+}
+
+async function preloadDefaultStickers(){
+  const results = await Promise.allSettled(defaultStickerPaths.map(loadImageAsSticker));
+  results.forEach(r => { if(r.status==='fulfilled') stickers.push(r.value); });
+  startBtn.disabled = stickers.length < 2;
+}
+window.addEventListener('load', preloadDefaultStickers);
+
+// cargar adicionales
 fileInput.addEventListener('change', (e)=>{
-  stickers = [];
   [...e.target.files].forEach(f=>{
     if (!f.type.startsWith("image/")) return;
     const img = new Image();
@@ -52,7 +70,7 @@ fileInput.addEventListener('change', (e)=>{
 
 startBtn.addEventListener('click', ()=>{
   if (stickers.length < 2) {
-    alert("Sube al menos 2 stickers!");
+    alert("No hay suficientes stickers!");
     return;
   }
   startGame();
@@ -76,25 +94,35 @@ function startGame(){
 
 function runGame(){
   gameRunning = true;
-  const P = { x:200,y:300,vy:0,w:80,h:80,score:0, img:stickers[0].img, onGround:false };
-  const C = { x:500,y:300,vy:0,w:80,h:80,score:0, img:stickers[1].img, onGround:false, aiTimer:0 };
+
+  // elige 2 stickers distintos al azar
+  function pickTwoRandom(arr){
+    const i = Math.floor(Math.random()*arr.length);
+    let j = i;
+    while(j===i){ j = Math.floor(Math.random()*arr.length); }
+    return [arr[i], arr[j]];
+  }
+  const [stA, stB] = pickTwoRandom(stickers);
+
+  const P = { x:200,y:300,vy:0,w:80,h:80,score:0, img:stA.img, onGround:false };
+  const C = { x:500,y:300,vy:0,w:80,h:80,score:0, img:stB.img, onGround:false, aiTimer:0 };
+
   let keys = {left:false,right:false,jump:false};
-  let timeLeft = 20*60; // 20s a 60fps
-  let lastHitTime = 0;
-  let lastCpuHitTime = 0;
+  let timeLeft = 20*60;
+  let lastHitTime=0, lastCpuHitTime=0;
 
   // input
   function keyDown(e){
-    if(['ArrowLeft','ArrowRight','Space','KeyA','KeyD','KeyW'].includes(e.code)) e.preventDefault();
-    if(e.code==='ArrowLeft'||e.code==='KeyA') keys.left=true;
-    if(e.code==='ArrowRight'||e.code==='KeyD') keys.right=true;
-    if(e.code==='Space'||e.code==='KeyW') keys.jump=true;
+    if(['ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+    if(e.code==='ArrowLeft') keys.left=true;
+    if(e.code==='ArrowRight') keys.right=true;
+    if(e.code==='Space') keys.jump=true;
   }
   function keyUp(e){
-    if(['ArrowLeft','ArrowRight','Space','KeyA','KeyD','KeyW'].includes(e.code)) e.preventDefault();
-    if(e.code==='ArrowLeft'||e.code==='KeyA') keys.left=false;
-    if(e.code==='ArrowRight'||e.code==='KeyD') keys.right=false;
-    if(e.code==='Space'||e.code==='KeyW') keys.jump=false;
+    if(['ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+    if(e.code==='ArrowLeft') keys.left=false;
+    if(e.code==='ArrowRight') keys.right=false;
+    if(e.code==='Space') keys.jump=false;
   }
   window.addEventListener('keydown',keyDown,{passive:false});
   window.addEventListener('keyup',keyUp,{passive:false});
@@ -104,16 +132,9 @@ function runGame(){
     let dx = P.x - C.x;
     if(C.aiTimer<=0){
       C.aiTimer = 20 + Math.random()*25;
-      // CPU decide moverse
-      if(Math.abs(dx)>100){
-        C.vx = (dx>0?2.5:-2.5);
-      } else {
-        C.vx = (dx>0?-1.5:1.5); // a veces se retira
-      }
-      // CPU decide saltar ofensivo
-      if(Math.random()<0.3 && C.onGround){
-        C.vy = -14;
-      }
+      if(Math.abs(dx)>100){ C.vx = (dx>0?2.5:-2.5); }
+      else { C.vx = (dx>0?-1.5:1.5); }
+      if(Math.random()<0.3 && C.onGround){ C.vy = -14; }
     }
   }
 
@@ -121,7 +142,7 @@ function runGame(){
     if(!gameRunning) return;
     ctx.clearRect(0,0,canvas.width,canvas.height);
 
-    // jugador movimiento
+    // jugador
     if(keys.left) P.x -= 3;
     if(keys.right) P.x += 3;
     if(keys.jump && P.onGround){ P.vy=-15; P.onGround=false; }
@@ -135,14 +156,14 @@ function runGame(){
     C.vy += 0.6; C.y += C.vy;
     if(C.y+C.h>canvas.height){ C.y=canvas.height-C.h; C.vy=0; C.onGround=true; }
 
-    // colisiones solo por pisotón
+    // colisiones solo pisotón
     if(Date.now()-lastHitTime>800){
       if(P.vy>0 && P.y+P.h<=C.y+20 && P.x<P.x+P.w && P.x+P.w>C.x){
         if(P.y+P.h>=C.y && P.y+P.h<=C.y+20){
           P.score++;
           sHitP1.play().catch(()=>{});
           lastHitTime=Date.now();
-          P.vy=-8; // rebote
+          P.vy=-8;
         }
       }
     }
@@ -161,7 +182,6 @@ function runGame(){
     ctx.drawImage(P.img,P.x,P.y,P.w,P.h);
     ctx.drawImage(C.img,C.x,C.y,C.w,C.h);
 
-    // marcador
     timeLeft--;
     scoreDiv.innerText = `Jugador: ${P.score} | CPU: ${C.score} | Tiempo: ${Math.ceil(timeLeft/60)}`;
     if(timeLeft<=0){
