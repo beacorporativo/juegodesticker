@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Sticker Fight</title>
+  <style>
+    body { margin:0; background:#222; color:#fff; font-family:sans-serif; text-align:center; }
+    #gameCanvas { background:#333; display:none; margin:auto; }
+    #plantel { margin:20px; }
+    #countdown { font-size:2em; margin:20px; }
+    #score { font-size:1.5em; margin:10px; }
+    input[type=file] { margin:10px; }
+  </style>
+</head>
+<body>
+  <h1>Sticker Fight</h1>
+  <div id="plantel">
+    <p>Sube al menos 2 stickers (PNG/WEBP/JPG)</p>
+    <input type="file" id="fileInput" multiple accept="image/*"><br>
+    <button id="startBtn">1P vs CPU</button>
+  </div>
+  <div id="countdown"></div>
+  <canvas id="gameCanvas" width="800" height="400"></canvas>
+  <div id="score"></div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const countdownDiv = document.getElementById('countdown');
+const scoreDiv = document.getElementById('score');
+const startBtn = document.getElementById('startBtn');
+const fileInput = document.getElementById('fileInput');
+
+let stickers = [];
+let gameRunning = false;
+
+// audios
+const sHitP1 = new Audio('cha-ching-money.mp3');
+const sHitCPU = new Audio('para-sesi-efekti_PaUswM1.mp3');
+const sEnd   = new Audio('maslaton-pero-vos-sos-pelotudo.mp3');
+
+// cargar stickers
+fileInput.addEventListener('change', (e)=>{
+  stickers = [];
+  [...e.target.files].forEach(f=>{
+    if (!f.type.startsWith("image/")) return;
+    const img = new Image();
+    img.onload = ()=> stickers.push({name:f.name.replace(/\.[^.]+$/,''), img});
+    img.src = URL.createObjectURL(f);
+  });
+});
+
+startBtn.addEventListener('click', ()=>{
+  if (stickers.length < 2) {
+    alert("Sube al menos 2 stickers!");
+    return;
+  }
+  startGame();
+});
+
+function startGame(){
+  document.getElementById('plantel').style.display="none";
+  canvas.style.display="block";
+  let countdown = 3;
+  countdownDiv.innerText = countdown;
+  const interval = setInterval(()=>{
+    countdown--;
+    if(countdown>0){ countdownDiv.innerText = countdown; }
+    else {
+      clearInterval(interval);
+      countdownDiv.innerText = "¡YA!";
+      setTimeout(()=>{countdownDiv.innerText=""; runGame();},800);
+    }
+  },1000);
+}
+
+function runGame(){
+  gameRunning = true;
+  const P = { x:200,y:300,vy:0,w:80,h:80,score:0, img:stickers[0].img, onGround:false };
+  const C = { x:500,y:300,vy:0,w:80,h:80,score:0, img:stickers[1].img, onGround:false, aiTimer:0 };
+  let keys = {left:false,right:false,jump:false};
+  let timeLeft = 20*60; // 20s a 60fps
+  let lastHitTime = 0;
+  let lastCpuHitTime = 0;
+
+  // input
+  function keyDown(e){
+    if(['ArrowLeft','ArrowRight','Space','KeyA','KeyD','KeyW'].includes(e.code)) e.preventDefault();
+    if(e.code==='ArrowLeft'||e.code==='KeyA') keys.left=true;
+    if(e.code==='ArrowRight'||e.code==='KeyD') keys.right=true;
+    if(e.code==='Space'||e.code==='KeyW') keys.jump=true;
+  }
+  function keyUp(e){
+    if(['ArrowLeft','ArrowRight','Space','KeyA','KeyD','KeyW'].includes(e.code)) e.preventDefault();
+    if(e.code==='ArrowLeft'||e.code==='KeyA') keys.left=false;
+    if(e.code==='ArrowRight'||e.code==='KeyD') keys.right=false;
+    if(e.code==='Space'||e.code==='KeyW') keys.jump=false;
+  }
+  window.addEventListener('keydown',keyDown,{passive:false});
+  window.addEventListener('keyup',keyUp,{passive:false});
+
+  function updateAI(){
+    C.aiTimer--;
+    let dx = P.x - C.x;
+    if(C.aiTimer<=0){
+      C.aiTimer = 20 + Math.random()*25;
+      // CPU decide moverse
+      if(Math.abs(dx)>100){
+        C.vx = (dx>0?2.5:-2.5);
+      } else {
+        C.vx = (dx>0?-1.5:1.5); // a veces se retira
+      }
+      // CPU decide saltar ofensivo
+      if(Math.random()<0.3 && C.onGround){
+        C.vy = -14;
+      }
+    }
+  }
+
+  function gameLoop(){
+    if(!gameRunning) return;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // jugador movimiento
+    if(keys.left) P.x -= 3;
+    if(keys.right) P.x += 3;
+    if(keys.jump && P.onGround){ P.vy=-15; P.onGround=false; }
+
+    // gravedad
+    P.vy += 0.6; P.y += P.vy;
+    if(P.y+P.h>canvas.height){ P.y=canvas.height-P.h; P.vy=0; P.onGround=true; }
+
+    updateAI();
+    if(C.vx) C.x += C.vx;
+    C.vy += 0.6; C.y += C.vy;
+    if(C.y+C.h>canvas.height){ C.y=canvas.height-C.h; C.vy=0; C.onGround=true; }
+
+    // colisiones solo por pisotón
+    if(Date.now()-lastHitTime>800){
+      if(P.vy>0 && P.y+P.h<=C.y+20 && P.x<P.x+P.w && P.x+P.w>C.x){
+        if(P.y+P.h>=C.y && P.y+P.h<=C.y+20){
+          P.score++;
+          sHitP1.play().catch(()=>{});
+          lastHitTime=Date.now();
+          P.vy=-8; // rebote
+        }
+      }
+    }
+    if(Date.now()-lastCpuHitTime>800){
+      if(C.vy>0 && C.y+C.h<=P.y+20 && C.x<C.x+C.w && C.x+C.w>P.x){
+        if(C.y+C.h>=P.y && C.y+C.h<=P.y+20){
+          C.score++;
+          sHitCPU.play().catch(()=>{});
+          lastCpuHitTime=Date.now();
+          C.vy=-8;
+        }
+      }
+    }
+
+    // dibujar
+    ctx.drawImage(P.img,P.x,P.y,P.w,P.h);
+    ctx.drawImage(C.img,C.x,C.y,C.w,C.h);
+
+    // marcador
+    timeLeft--;
+    scoreDiv.innerText = `Jugador: ${P.score} | CPU: ${C.score} | Tiempo: ${Math.ceil(timeLeft/60)}`;
+    if(timeLeft<=0){
+      endGame(P,C);
+      return;
+    }
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  function endGame(P,C){
+    gameRunning=false;
+    sEnd.play().catch(()=>{});
+    countdownDiv.innerText = (P.score>C.score ? "¡Ganaste!" : P.score<C.score ? "Perdiste" : "Empate");
+  }
+
+  gameLoop();
+}
+</script>
+</body>
+</html>
